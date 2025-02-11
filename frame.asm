@@ -104,14 +104,41 @@ extractArgsFromCommandLine      proc
     pop cx ; restore command line len
     mov dx, bx ; store width of frame
 
+
+
+
+
+    ; count len of style index word and store it in cx
+    mov al, ' ' ; char that we search
+    mov si, di  ; save previous char position
+    repne scasb ; search for the next space (end of word)
+    push cx     ; save command line len
+    mov cx, di
+    sub cx, si  ; store len of word in cx
+    dec cx
+
+    ; transform style index string to integer
+    call atoiBase10
+    mov si, bx
+    pop cx ; restore command line len
+    pop bx ; restore bx (height)
+    push si ; save style index
+
+
+
+
+
     mov si, di ; save memory address of text message
     mov al, ' '
     repne scasb
     mov cx, di
     sub cx, si
     dec cx ; save text message len
+    mov si, di
+    sub si, cx
+    dec si
 
-    pop bx ; restore bx (height)
+    ; pop bx ; restore bx (height)
     ret
     endp
 
@@ -160,9 +187,15 @@ drawFrame   proc
     push bx ; save frame height
     mov bx, 0b800h
     mov es, bx ; set memory segment to video memory
-    mov ah, 4Eh ; set color attribute
     ; cld df ; just in case, we need si += 1 during lodsb
     lea si, TableFormat ; save TableFormat string address to SI
+    ; mov al, ss:[sp - 6]
+    ; xor ax, ax ; ax = 0
+    ; dec al
+    ; mul 9
+    ; add si, al
+    mov ah, 4Eh ; set color attribute
+
 
     ; draw first line of frame
     mov di, 2 * 2 * 80 ; move video memory pointer to the 2th line

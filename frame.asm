@@ -11,33 +11,142 @@
 
 
 ; TableFormat: db '123456789' ; for debug purposes
-; TableFormat: db '�Ŀ� ����'; single edge
-; TableFormat db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
-TableFormat db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
-TextMessage db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
-tableWidth  db 50
+TableFormat    db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
+               db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
+TextMessage    db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
+; tableWidth     db 50
+templateString db '10  '
 
 .code
 org 100h
 
 start:
+    call extractArgsFromCommandLine
+    ; mov bx, 10 ; height of frame
+    ; mov dx, 10 ; width of frame
     call drawFrameAndMessage
 
     mov ax, 4c00h
     int 21h
 
-drawFrameAndMessage     proc
-    call drawFrame
 
+; turns string into number (base = 10)
+; Entry : SI - address of string to process
+;         CX - len of input string
+; Exit  : BX - result
+; Destr : al
+atoiBase10      proc
+    mov bx, 0
+    digitCycle:
+        push cx ; save CX
+
+        ; BX *= 10
+        mov cx, bx
+        shl bx, 3  ; mul by 8
+        add bx, cx
+        add bx, cx
+
+        xor ax, ax ; AX = 0
+        lodsb ; load current char to AL
+        add bx, ax
+        sub bx, '0'
+
+        pop cx
+        loop digitCycle
+
+    ret
+    endp
+
+; command line args format:
+;       height, width, color of frame (in HEX), frameStyleIndex
+; Entry : None
+; Exit  : BX - height of frame
+;         DX - width  of frame
+;         AH - color of frame
+;         SI - memory address where text message lies
+;         CX - text message len
+;
+; Destr :
+extractArgsFromCommandLine      proc
+    mov si, 80h ; memory address where command line len lies
+    xor cx, cx ; cx = 0
+    mov cl, [si] ; load command line len to cx
+    mov di, 82h ; memory address where command line string lies (at 81h lies space)
+    push ds
+    pop es
+
+    ; count len of height word and store it in cx
+    mov al, ' ' ; char that we search
+    mov si, di  ; save previous char position
+    repne scasb ; search for the next space (end of word)
+    push cx     ; save left command line len
+    mov cx, di
+    sub cx, si ; store len of word in cx
+    dec cx
+
+    ; transform height string to integer
+    call atoiBase10
+    pop cx  ; restore command line len
+    push bx ; save bx (height)
+    ; si points to the space
+
+    ; count len of width word and store it in cx
+    mov al, ' ' ; char that we search
+    mov si, di ; save previous char position
+    repne scasb ; search for the next space (end of word)
+    push cx ; save command line len
+    mov cx, di
+    sub cx, si ; store len of word in cx
+    dec cx
+
+    ; transform width string to integer
+    call atoiBase10
+    pop cx ; restore command line len
+    mov dx, bx ; store width of frame
+
+    mov si, di ; save memory address of text message
+    mov al, ' '
+    repne scasb
+    mov cx, di
+    sub cx, si
+    dec cx ; save text message len
+
+    pop bx ; restore bx (height)
+    ret
+    endp
+
+drawFrameAndMessage     proc
+    push si ; save address of message si
+    push cx ; save text message len
+    call drawFrame
+    pop  cx ; restore len
+    pop  si ; restore si (address)
+
+    push bx ; save bx
     mov bx, 0b800h
     mov es, bx ; set memory segment to video memory
-    mov ah, 5Dh ; set color attribute
+    pop bx  ; restore bx
     ; cld df ; just in case, we need si += 1 during lodsb
-    mov di, 15 * 2 * 80
-    mov cx, 23 ; text message len
-    lea si, TextMessage ; save TextMessage string address to SI
-    mov cx, [80h]
-    mov si, 81h
+
+    ; center text by y coord
+    push dx ; save dx, destroyed during mul
+    mov di, bx
+    shr di, 1 ; di = bx / 2, we want to place text message in the middle row
+    add di, 2
+    mov ax, 2 * 80
+    mul di
+    mov di, ax
+
+    ; center text by x coord
+    pop dx
+    mov ax, dx
+    sub ax, cx
+    shr ax, 1 ; round to the even number
+    shl ax, 1
+    add di, ax
+
+    xor ax, ax
+    mov ah, 5Dh ; set color attribute
     call drawTextMessage
 
     ret
@@ -48,6 +157,7 @@ drawFrameAndMessage     proc
 ; Exit : None
 ; Destr: si, ax, bx
 drawFrame   proc
+    push bx ; save frame height
     mov bx, 0b800h
     mov es, bx ; set memory segment to video memory
     mov ah, 4Eh ; set color attribute
@@ -55,18 +165,21 @@ drawFrame   proc
     lea si, TableFormat ; save TableFormat string address to SI
 
     ; draw first line of frame
-    mov di, 10 * 2 * 80 ; move video memory pointer to the 10th line
-    mov cx, 40 ; TODO: hardcoded, frame width
+    mov di, 2 * 2 * 80 ; move video memory pointer to the 2th line
+    mov cx, dx ; TODO: hardcoded, frame width
     call drawLine
     add di, 2 * 80 ; move video memory pointer to the next line
     add si, 3
 
-    mov cx, 10 - 2 ; hardcoded, frame height
+    pop bx ; restore height
+    mov cx, bx ; hardcoded, frame height
+    dec cx ; cx -= 2, height - 2 (because first and last rows are already considered)
+    dec cx
     cycleThroughRows:
         push cx ; save cx
 
         ; lea si, TableFormat + 3
-        mov cx, 40 ; TODO: hardcoded, frame width
+        mov cx, dx ; TODO: hardcoded, frame width
         call drawLine
         add di, 2 * 80 ; move video memory pointer to the next line
 
@@ -76,7 +189,7 @@ drawFrame   proc
     add si, 3
     ; draw last line of frame
     ; lea si, TableFormat + 6
-    mov cx, 40 ; TODO: hardcoded, frame width
+    mov cx, dx ; TODO: hardcoded, frame width
     call drawLine
 
     ret
@@ -94,7 +207,7 @@ drawLine    proc
     push di ; save di
     push si ; save si
 
-    add di, 2 * 10 ; x coord offset
+    ; add di, 2 * 10 ; x coord offset
     ; draws first symbol of row
     lodsb ; puts beginning style character to AL
     mov es:[di], ax ; saves char with color to video memory
@@ -129,7 +242,6 @@ drawTextMessage     proc
     push di ; save di
     push si ; save si
 
-    add di, 2 * 20 ; x coord offset
     charLoop:
         lodsb ; load char from message to al
         mov es:[di], ax ; save char with color attr to video memory

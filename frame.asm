@@ -34,14 +34,10 @@ drawFrameAndMessage     proc
     mov ah, 5Dh ; set color attribute
     ; cld df ; just in case, we need si += 1 during lodsb
     mov di, 15 * 2 * 80
-
     mov cx, 23 ; text message len
-    lea si, TextMessage
-    ;mov si, 80h
-    ;; lodsb
-    ;xor cx, cx ; cx = 0
-    ;mov cl, [si]
-    ;mov si, 81h
+    lea si, TextMessage ; save TextMessage string address to SI
+    mov cx, [80h]
+    mov si, 81h
     call drawTextMessage
 
     ret

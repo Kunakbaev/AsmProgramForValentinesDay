@@ -13,6 +13,7 @@
 ; TableFormat: db '123456789' ; for debug purposes
 TableFormat    db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
                db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
+               db '123456789'
 TextMessage    db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
 ; tableWidth     db 50
 templateString db '10  '
@@ -134,11 +135,9 @@ extractArgsFromCommandLine      proc
     mov cx, di
     sub cx, si
     dec cx ; save text message len
-    mov si, di
-    sub si, cx
-    dec si
 
     ; pop bx ; restore bx (height)
+    pop di ; restore style index
     ret
     endp
 
@@ -180,7 +179,7 @@ drawFrameAndMessage     proc
     endp
 
 ; Draws frame of table
-; Entry: None
+; Entry: DI - style index
 ; Exit : None
 ; Destr: si, ax, bx
 drawFrame   proc
@@ -188,13 +187,16 @@ drawFrame   proc
     mov bx, 0b800h
     mov es, bx ; set memory segment to video memory
     ; cld df ; just in case, we need si += 1 during lodsb
+    push dx;
     lea si, TableFormat ; save TableFormat string address to SI
-    ; mov al, ss:[sp - 6]
-    ; xor ax, ax ; ax = 0
-    ; dec al
-    ; mul 9
-    ; add si, al
+    xor ax, ax ; ax = 0
+    mov ax, di
+    dec al
+    mov di, 9
+    mul di
+    add si, ax
     mov ah, 4Eh ; set color attribute
+    pop dx
 
 
     ; draw first line of frame
@@ -288,3 +290,8 @@ drawTextMessage     proc
 
 end start
 
+/*
+
+https://av-assembler.ru/instructions/mul.php
+
+*/

@@ -15,178 +15,135 @@
 ; TableFormat db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
 TableFormat db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
 TextMessage db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
-tableWidth db 50
+tableWidth  db 50
 
 .code
 org 100h
 
 start:
-    call drawFrame
-    call drawTextMessage
-
-;     mov cx, 5
-;     drawTableFormat:
-;         ; mov ax, TableFormat
-;         mov si, cx
-;         lea bx, TableFormat
-;         mov al, bx[si-1]
-;         mov ah, 4Eh
-;         push bx
-;         push cx
-;         add cx, 37  ; col index
-;         mov bx, 20 ; row index
-;         call drawSymbol
-;         pop cx
-;         pop bx
-;
-;         loop drawTableFormat
+    call drawFrameAndMessage
 
     mov ax, 4c00h
     int 21h
+
+drawFrameAndMessage     proc
+    call drawFrame
+
+    mov bx, 0b800h
+    mov es, bx ; set memory segment to video memory
+    mov ah, 5Dh ; set color attribute
+    ; cld df ; just in case, we need si += 1 during lodsb
+    mov di, 15 * 2 * 80
+
+    mov cx, 23 ; text message len
+    lea si, TextMessage
+    ;mov si, 80h
+    ;; lodsb
+    ;xor cx, cx ; cx = 0
+    ;mov cl, [si]
+    ;mov si, 81h
+    call drawTextMessage
+
+    ret
+    endp
 
 ; Draws frame of table
 ; Entry: None
 ; Exit : None
 ; Destr: si, ax, bx
 drawFrame   proc
-    mov si, 0
+    mov bx, 0b800h
+    mov es, bx ; set memory segment to video memory
+    mov ah, 4Eh ; set color attribute
+    ; cld df ; just in case, we need si += 1 during lodsb
+    lea si, TableFormat ; save TableFormat string address to SI
 
-    ; draw first line
-    mov bx, 10
-    push bx ; save bx
+    ; draw first line of frame
+    mov di, 10 * 2 * 80 ; move video memory pointer to the 10th line
+    mov cx, 40 ; TODO: hardcoded, frame width
     call drawLine
-    pop bx ; restore bx
-    inc bx ; move to the next row
-    add si, 3 ; change output style of first, middle, last char
+    add di, 2 * 80 ; move video memory pointer to the next line
+    add si, 3
 
-    mov cx, 10 - 2 ; height of table - 2 (first and last rows)
-    rowsCycle:
+    mov cx, 10 - 2 ; hardcoded, frame height
+    cycleThroughRows:
         push cx ; save cx
 
-        push bx ; save bx
+        ; lea si, TableFormat + 3
+        mov cx, 40 ; TODO: hardcoded, frame width
         call drawLine
-        pop bx ; restore bx
+        add di, 2 * 80 ; move video memory pointer to the next line
 
-        inc bx ; move to the next row
         pop cx ; restore cx
-        loop rowsCycle
+        loop cycleThroughRows
 
-    add si, 3 ; change output style of first, middle, last char
-    ; draw last line
-    push bx ; save bx
+    add si, 3
+    ; draw last line of frame
+    ; lea si, TableFormat + 6
+    mov cx, 40 ; TODO: hardcoded, frame width
     call drawLine
-    pop bx ; restore bx
 
     ret
     endp
-
-
 
 ; Draws line of code
-; Entry: SI = startIndex of beginning char
-;        BX = row
+; Entry: AH = color attribute
+;        DS:SI = address of style string sequence
+;        ES:DI = address in video memory where to begin drawing line
+;        CX = frame width
+; Require: DF (direction flag) = 0
 ; Exit :
-; Destr: ax, bx, cx
+; Destr:
 drawLine    proc
-    push cx ; save cx
+    push di ; save di
+    push si ; save si
 
-    ; draw ending char
-    push bx ; save bx
-    lea bx, TableFormat
-    mov al, bx[si + 2]
-    mov ah, 4Eh
-    lea bx tableWidth
-    mov cx, [tableWidth] - 1 ; col position
-    pop bx ; restore bx
-    call drawSymbol
+    add di, 2 * 10 ; x coord offset
+    ; draws first symbol of row
+    lodsb ; puts beginning style character to AL
+    mov es:[di], ax ; saves char with color to video memory
+    add di, 2 ; move col position
 
-    mov cx, 40 - 2          ; cycle through all rows (40 - 2 times)
-    colsCycle:
-        push cx ; save cx
-        ; draw middle char
-        push bx ; save bx
-        lea bx, TableFormat
-        mov al, bx[si + 1]
-        mov ah, 4Eh
-        pop bx ; restore bx
-        call drawSymbol
-        pop cx
-        push cx ; save cx
-        call drawSymbol
+    lodsb ; puts middle style character to AL
+    sub cx, 2 ; number of chars in the middle = width - 2 (first and last characters)
+    cycleThroughCols:
+        mov es:[di], ax ; save char with color attr to video memory
+        add di, 2 ; move col position
+        loop cycleThroughCols
 
-        pop cx ; restore cx
-        loop colsCycle
+    ; draws lasty symbol of row
+    lodsb ; puts ending style character to AL
+    mov es:[di], ax ; saves char with color to video memory
+    add di, 2 ; move col position
 
-    ; draw beginning char
-    push bx ; save bx
-    lea bx, TableFormat ; TODO: copypaste
-    mov al, bx[si]
-    mov ah, 4Eh
-    mov cx, 0 ; col position
-    pop bx ; restore bx
-    call drawSymbol
-
-    pop cx ; restore cx
-
+    pop si ; restore si (can be changed to -3 = number of lodsb)
+    pop di ; restore di
     ret
     endp
 
-
-
+; Draws text message
+; Entry: AH = color attribute
+;        DS:SI = address of message string
+;        ES:DI = address in video memory where to begin drawing text
+;        CX = line length
+; Require: DF (direction flag) = 0
+; Exit :
+; Destr:
 drawTextMessage     proc
-    ; hardcoded len = 23, offset = 5
-    mov cx, 23
-    charLoop:
-        push cx ; save cx
+    push di ; save di
+    push si ; save si
 
-        mov si, cx
-        lea bx, TextMessage
-        mov al, bx[si - 1]
-        mov ah, 4Eh
-        add cx, 5   ; col pos
-        mov bx, 15  ; row pos
-        call drawSymbol
-        pop cx ; restore cx
+    add di, 2 * 20 ; x coord offset
+    charLoop:
+        lodsb ; load char from message to al
+        mov es:[di], ax ; save char with color attr to video memory
+        add di, 2 ; move col position
         loop charLoop
 
-    ret
-    endp
-
-
-; Draws one symbol in video memory
-; Entry: AL = letter code;
-;        AH = color attr;
-;        CX = col position
-;        BX = row position
-; Exit : None
-; Destr: bx, es
-; TODO: refactor with stack
-drawSymbol  proc
-    push bx ; save bx
-    push ax ; save ax
-
-    push bx
-    mov bx, 0b800h   ; memory addr where video memory begins
-    mov es, bx
-    pop bx
-
-    ; bx = rowPos(bx) * 80 * 2 + colPos(cx) * 2
-    ; rowPos is already in stack
-    mov ax, 80 * 2 ; double screen width
-    mul bx
-    mov bx, ax
-
-    mov ax, 2
-    mul cx
-    add bx, ax
-
-    pop ax ; restore orig value of ax
-    mov es:[bx], ax
-    pop bx ; restore orig value of bx
-
+    pop si ; restore si
+    pop di ; restore di
     ret
     endp
 
 end start
-
 

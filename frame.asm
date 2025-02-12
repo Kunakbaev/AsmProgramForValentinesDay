@@ -10,17 +10,19 @@
 .data
 
 
-TableFormat    db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
-               db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
-               db '123456789'                                ; for debug purposes
-TextMessage    db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
-templateString db '10  '
+; contains all possible formats for frame
+FrameStyles         db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
+                    db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
+                    db '123456789'                                ; for debug purposes
+CurrentFrameStyle   db 9 dup(?)
+TextMessage         db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
+templateString      db '10  '
 
 .code
 org 100h
 
 start:
-    cld df ; just in case, we need si += 1 during lodsb
+    cld  ; just in case, we need si += 1 during lodsb
     call extractArgsFromCommandLine
     call drawFrameAndMessage
 
@@ -57,7 +59,7 @@ atoiBase10      proc
 
 ; reads bytes from DI till space (reads no more than CX chars),
 ;    saves leftLen in AX, than stores len of read word in cx
-; Entry : SI - memory address where text message lies
+; Entry : DI - memory address where text message lies
 ; Exit  : CX - read word len
 ;         DI - symbol AFTER space
 ;         SI - starting position
@@ -118,15 +120,28 @@ extractArgsFromCommandLine      proc
 
     ; transform style index string to integer
     call atoiBase10
-    mov si, bx
+    mov si, offset FrameStyles
+
+    mov cx, bx
+    dec cx
+    ;add si, di
+    bruh:
+        add si, 9
+        loop bruh
+
+    push di ; save di
+    mov cx, 9
+    mov di, offset CurrentFrameStyle
+    rep movsb
+    pop di  ; restore  di
+
+
     pop cx              ; restore command line len
     pop bx              ; restore bx (height)
-    push si             ; save style index
 
     ; -------------------------------------------------------
     call parseSymbolsTillSpace
 
-    pop di              ; restore style index
     ret
     endp
 
@@ -180,7 +195,7 @@ drawFrameAndMessage     proc
     endp
 
 ; Draws frame of table
-; Entry: DI - style index
+; Entry: None
 ; Exit : None
 ; Destr: si, ax, bx
 drawFrame   proc
@@ -189,13 +204,7 @@ drawFrame   proc
     mov es, bx ; set memory segment to video memory
     ; cld df ; just in case, we need si += 1 during lodsb
     push dx;
-    lea si, TableFormat ; save TableFormat string address to SI
-    xor ax, ax ; ax = 0
-    mov ax, di
-    dec al
-    mov di, 9
-    mul di
-    add si, ax
+    mov si, offset CurrentFrameStyle ; save CurrentFrameStyle string address to SI
     mov ah, 4Ah ; set color attribute
     pop dx
 

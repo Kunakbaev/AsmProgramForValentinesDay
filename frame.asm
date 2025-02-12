@@ -10,21 +10,18 @@
 .data
 
 
-; TableFormat: db '123456789' ; for debug purposes
 TableFormat    db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
                db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
-               db '123456789'
+               db '123456789'                                ; for debug purposes
 TextMessage    db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
-; tableWidth     db 50
 templateString db '10  '
 
 .code
 org 100h
 
 start:
+    cld df ; just in case, we need si += 1 during lodsb
     call extractArgsFromCommandLine
-    ; mov bx, 10 ; height of frame
-    ; mov dx, 10 ; width of frame
     call drawFrameAndMessage
 
     mov ax, 4c00h
@@ -35,25 +32,44 @@ start:
 ; Entry : SI - address of string to process
 ;         CX - len of input string
 ; Exit  : BX - result
-; Destr : al
+; Destr : AL
 atoiBase10      proc
     mov bx, 0
     digitCycle:
-        push cx ; save CX
+        push cx         ; save CX
 
         ; BX *= 10
         mov cx, bx
-        shl bx, 3  ; mul by 8
+        shl bx, 3       ; mul by 8
         add bx, cx
         add bx, cx
 
-        xor ax, ax ; AX = 0
-        lodsb ; load current char to AL
+        xor ax, ax      ; AX = 0
+        lodsb           ; load current char to AL
         add bx, ax
         sub bx, '0'
 
         pop cx
         loop digitCycle
+
+    ret
+    endp
+
+; reads bytes from DI till space (reads no more than CX chars),
+;    saves leftLen in AX, than stores len of read word in cx
+; Entry : SI - memory address where text message lies
+; Exit  : CX - read word len
+;         DI - symbol AFTER space
+;         SI - starting position
+; Destr : AL
+parseSymbolsTillSpace       proc
+    mov al, ' ' ; char that we search
+    mov si, di  ; save previous char position
+    repne scasb ; search for the next space (end of word)
+    mov ax, cx  ; save left command line len
+    mov cx, di
+    sub cx, si  ; store len of word in cx
+    dec cx
 
     ret
     endp
@@ -66,94 +82,58 @@ atoiBase10      proc
 ;         AH - color of frame
 ;         SI - memory address where text message lies
 ;         CX - text message len
-;
 ; Destr :
 extractArgsFromCommandLine      proc
-    mov si, 80h ; memory address where command line len lies
-    xor cx, cx ; cx = 0
-    mov cl, [si] ; load command line len to cx
-    mov di, 82h ; memory address where command line string lies (at 81h lies space)
+    mov si, 80h         ; memory address where command line len lies
+    xor cx, cx          ; cx = 0
+    mov cl, [si]        ; load command line len to cx
+    mov di, 82h         ; memory address where command line string lies (at 81h lies space)
     push ds
     pop es
 
+    ; -------------------------------------------------------
     ; count len of height word and store it in cx
-    mov al, ' ' ; char that we search
-    mov si, di  ; save previous char position
-    repne scasb ; search for the next space (end of word)
-    push cx     ; save left command line len
-    mov cx, di
-    sub cx, si ; store len of word in cx
-    dec cx
+    call parseSymbolsTillSpace
+    push ax
 
-    ; transform height string to integer
+                        ; transform height string to integer
     call atoiBase10
-    pop cx  ; restore command line len
-    push bx ; save bx (height)
-    ; si points to the space
+    pop cx              ; restore command line len
+    push bx             ; save bx (height)
 
+    ; -------------------------------------------------------
     ; count len of width word and store it in cx
-    mov al, ' ' ; char that we search
-    mov si, di ; save previous char position
-    repne scasb ; search for the next space (end of word)
-    push cx ; save command line len
-    mov cx, di
-    sub cx, si ; store len of word in cx
-    dec cx
+    call parseSymbolsTillSpace
+    push ax
 
     ; transform width string to integer
     call atoiBase10
-    pop cx ; restore command line len
-    mov dx, bx ; store width of frame
+    pop cx              ; restore command line len
+    mov dx, bx          ; store width of frame
 
-
-
-
-
+    ; -------------------------------------------------------
     ; count len of style index word and store it in cx
-    mov al, ' ' ; char that we search
-    mov si, di  ; save previous char position
-    repne scasb ; search for the next space (end of word)
-    push cx     ; save command line len
-    mov cx, di
-    sub cx, si  ; store len of word in cx
-    dec cx
+    call parseSymbolsTillSpace
+    push ax
 
     ; transform style index string to integer
     call atoiBase10
     mov si, bx
-    pop cx ; restore command line len
-    pop bx ; restore bx (height)
-    push si ; save style index
+    pop cx              ; restore command line len
+    pop bx              ; restore bx (height)
+    push si             ; save style index
 
+    ; -------------------------------------------------------
+    call parseSymbolsTillSpace
 
-
-
-
-    mov si, di ; save memory address of text message
-    mov al, ' '
-    repne scasb
-    mov cx, di
-    sub cx, si
-    dec cx ; save text message len
-
-    ; pop bx ; restore bx (height)
-    pop di ; restore style index
+    pop di              ; restore style index
     ret
     endp
 
-drawFrameAndMessage     proc
-    push si ; save address of message si
-    push cx ; save text message len
-    call drawFrame
-    pop  cx ; restore len
-    pop  si ; restore si (address)
-
-    push bx ; save bx
-    mov bx, 0b800h
-    mov es, bx ; set memory segment to video memory
-    pop bx  ; restore bx
-    ; cld df ; just in case, we need si += 1 during lodsb
-
+; Entry : DI, address of string
+; Exit  : DI, centered position of string
+; Destr : AX
+centerMessagePosition       proc
     ; center text by y coord
     push dx ; save dx, destroyed during mul
     mov di, bx
@@ -171,8 +151,29 @@ drawFrameAndMessage     proc
     shl ax, 1
     add di, ax
 
+    ret
+    endp
+
+; Draws frame and puts text message
+; Entry : BX, DX - height and width of frame
+;       : CX - len of text message
+;       : SI - memory address where text message lies
+; Exit  : None
+; Destr :
+drawFrameAndMessage     proc
+    push si             ; save address of message si
+    push cx             ; save text message len
+    call drawFrame
+    pop  cx             ; restore len
+    pop  si             ; restore si (address)
+
+    push 0b800h         ; set memory segment to video memory
+    pop  es
+
+    call centerMessagePosition
+
     xor ax, ax
-    mov ah, 5Dh ; set color attribute
+    mov ah, 5Dh         ; set color attribute
     call drawTextMessage
 
     ret
@@ -195,7 +196,7 @@ drawFrame   proc
     mov di, 9
     mul di
     add si, ax
-    mov ah, 4Eh ; set color attribute
+    mov ah, 4Ah ; set color attribute
     pop dx
 
 
@@ -242,26 +243,26 @@ drawLine    proc
     push di ; save di
     push si ; save si
 
-    ; add di, 2 * 10 ; x coord offset
-    ; draws first symbol of row
-    lodsb ; puts beginning style character to AL
-    mov es:[di], ax ; saves char with color to video memory
-    add di, 2 ; move col position
+                                ; add di, 2 * 10 ; x coord offset
+                                ; draws first symbol of row
+    lodsb                       ; puts beginning style character to AL
+    mov es:[di], ax             ; saves char with color to video memory
+    add di, 2                   ; move col position
 
-    lodsb ; puts middle style character to AL
-    sub cx, 2 ; number of chars in the middle = width - 2 (first and last characters)
+    lodsb                       ; puts middle style character to AL
+    sub cx, 2                   ; number of chars in the middle = width - 2 (first and last characters)
     cycleThroughCols:
-        mov es:[di], ax ; save char with color attr to video memory
-        add di, 2 ; move col position
+        mov es:[di], ax         ; save char with color attr to video memory
+        add di, 2               ; move col position
         loop cycleThroughCols
 
-    ; draws lasty symbol of row
-    lodsb ; puts ending style character to AL
-    mov es:[di], ax ; saves char with color to video memory
-    add di, 2 ; move col position
+                                ; draws last symbol of row
+    lodsb                       ; puts ending style character to AL
+    mov es:[di], ax             ; saves char with color to video memory
+    add di, 2                   ; move col position
 
-    pop si ; restore si (can be changed to -3 = number of lodsb)
-    pop di ; restore di
+    pop si                      ; restore si (can be changed to -3 = number of lodsb)
+    pop di                      ; restore di
     ret
     endp
 

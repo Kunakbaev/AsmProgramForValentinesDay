@@ -17,6 +17,9 @@ FrameStyles         db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
 CurrentFrameStyle   db 9 dup(?)
 TextMessage         db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
 templateString      db '10  '
+backgroundColor     db 1 dup(?)
+
+
 
 .code
 org 100h
@@ -57,6 +60,42 @@ atoiBase10      proc
     ret
     endp
 
+
+; ASK: copypaste?
+; turns string into number (base = 16)
+; Entry : SI - address of string to process
+;         CX - len of input string
+; Exit  : BX - result
+; Destr : AL
+atoiBase16      proc
+    mov bx, 0
+    digitHexCycle:
+        push cx         ; save CX
+
+        ; BX *= 16
+        shl bx, 4
+
+        xor ax, ax      ; AX = 0
+        lodsb           ; load current char to AL
+        add bx, ax
+
+        cmp al, 'A' ; FIXME:
+        jge letterChar
+            sub bx, '0'
+            jmp ifEnd
+        letterChar:
+            add bx, 10
+            sub bx, 'A'
+        ifEnd:
+
+        pop cx
+        loop digitHexCycle
+
+    ret
+    endp
+
+
+
 ; reads bytes from DI till space (reads no more than CX chars),
 ;    saves leftLen in AX, than stores len of read word in cx
 ; Entry : DI - memory address where text message lies
@@ -72,6 +111,51 @@ parseSymbolsTillSpace       proc
     mov cx, di
     sub cx, si  ; store len of word in cx
     dec cx
+
+    ret
+    endp
+
+; Loads chosen frame styel to CurrentFrameStyle
+; if index = 0, reads style from command line
+; Entry : BX - style index
+;         CX - command line len
+; Exit  : CX - new command line len
+decideFrameStyle        proc
+    push cx ; save cx
+    cmp bx, 0
+    je userInputFrameStyle
+        mov si, offset FrameStyles
+
+        mov cx, bx
+        dec cx
+        ;add si, di
+        bruh:
+            add si, 9
+            loop bruh
+
+        push di ; save di
+        mov cx, 9
+        mov di, offset CurrentFrameStyle
+        rep movsb
+        pop di  ; restore  di
+        pop cx
+        jmp inputStyleIfEnd
+
+    userInputFrameStyle:
+        pop cx
+        call parseSymbolsTillSpace
+        push ax
+        ; push ax
+        push di ; save di
+                ; si points to beginning of user's style
+        mov di, offset CurrentFrameStyle
+        mov cx, 9
+        rep movsb
+
+        pop di  ; restore di
+        pop cx  ; restore command line len
+    inputStyleIfEnd:
+
 
     ret
     endp
@@ -114,29 +198,26 @@ extractArgsFromCommandLine      proc
     mov dx, bx          ; store width of frame
 
     ; -------------------------------------------------------
-    ; count len of style index word and store it in cx
+    ; count len of background color word (it's always eq 2, but we need to move di) and store it in cx
     call parseSymbolsTillSpace
     push ax
 
+    ; transform width string to integer
+    call atoiBase16
+    pop cx              ; restore command line len
+    ; mov si, offset backgroundColor
+    mov byte ptr backgroundColor, bl
+
+    ; -------------------------------------------------------
+    ; count len of style index word and store it in cx
+    call parseSymbolsTillSpace
+    push ax             ; save command line len
+
     ; transform style index string to integer
     call atoiBase10
-    mov si, offset FrameStyles
+    pop  cx             ; restore command line len
+    call decideFrameStyle
 
-    mov cx, bx
-    dec cx
-    ;add si, di
-    bruh:
-        add si, 9
-        loop bruh
-
-    push di ; save di
-    mov cx, 9
-    mov di, offset CurrentFrameStyle
-    rep movsb
-    pop di  ; restore  di
-
-
-    pop cx              ; restore command line len
     pop bx              ; restore bx (height)
 
     ; -------------------------------------------------------
@@ -188,7 +269,7 @@ drawFrameAndMessage     proc
     call centerMessagePosition
 
     xor ax, ax
-    mov ah, 5Dh         ; set color attribute
+    mov ah, 3Fh         ; set color attribute
     call drawTextMessage
 
     ret
@@ -205,7 +286,7 @@ drawFrame   proc
     ; cld df ; just in case, we need si += 1 during lodsb
     push dx;
     mov si, offset CurrentFrameStyle ; save CurrentFrameStyle string address to SI
-    mov ah, 4Ah ; set color attribute
+    mov ah, backgroundColor ; set color attribute
     pop dx
 
 

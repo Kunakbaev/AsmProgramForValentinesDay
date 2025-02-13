@@ -14,10 +14,10 @@
 FrameStyles         db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
                     db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
                     db '123456789'                                ; for debug purposes
+                    db '#-#| |#-#'
 CurrentFrameStyle   db 9 dup(?)
 TextMessage         db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
-templateString      db '10  '
-backgroundColor     db 1 dup(?)
+backgroundColor     db 1 dup(?)                                   ; Is it ok to store just one byte in memory?
 
 
 
@@ -45,7 +45,7 @@ atoiBase10      proc
 
         ; BX *= 10
         mov cx, bx
-        shl bx, 3       ; mul by 8
+        shl bx, 3       ; BX *= 8
         add bx, cx
         add bx, cx
 
@@ -99,18 +99,42 @@ atoiBase16      proc
 ; reads bytes from DI till space (reads no more than CX chars),
 ;    saves leftLen in AX, than stores len of read word in cx
 ; Entry : DI - memory address where text message lies
+;         AL - char untill which we parse
 ; Exit  : CX - read word len
 ;         DI - symbol AFTER space
 ;         SI - starting position
-; Destr : AL
-parseSymbolsTillSpace       proc
-    mov al, ' ' ; char that we search
+;         AL - left command line len
+; Destr : None
+parseSymbolsTillChar       proc
     mov si, di  ; save previous char position
     repne scasb ; search for the next space (end of word)
     mov ax, cx  ; save left command line len
     mov cx, di
     sub cx, si  ; store len of word in cx
     dec cx
+
+    ret
+    endp
+
+; ASK: cringe?
+; Exit  : AL - left command line lne
+parseSymbolsTillSpace       proc
+    mov al, ' '
+    call parseSymbolsTillChar
+
+    ret
+    endp
+
+; Exit  : AL - left command line lne
+parseQuotedWord     proc
+    mov al, "'" ;
+    inc di          ; skip quoted symbol
+    dec cx
+    call parseSymbolsTillChar
+                    ; di points to space
+    ; dec cx          ; -1 because of quote symbol
+    inc di          ; skip space symbol
+    dec ax
 
     ret
     endp
@@ -143,7 +167,7 @@ decideFrameStyle        proc
 
     userInputFrameStyle:
         pop cx
-        call parseSymbolsTillSpace
+        call parseQuotedWord
         push ax
         ; push ax
         push di ; save di
@@ -173,7 +197,7 @@ extractArgsFromCommandLine      proc
     mov si, 80h         ; memory address where command line len lies
     xor cx, cx          ; cx = 0
     mov cl, [si]        ; load command line len to cx
-    mov di, 82h         ; memory address where command line string lies (at 81h lies space)
+    mov di, 81h + 1         ; memory address where command line string lies (at 81h lies space)
     push ds
     pop es
 
@@ -205,7 +229,6 @@ extractArgsFromCommandLine      proc
     ; transform width string to integer
     call atoiBase16
     pop cx              ; restore command line len
-    ; mov si, offset backgroundColor
     mov byte ptr backgroundColor, bl
 
     ; -------------------------------------------------------
@@ -221,7 +244,7 @@ extractArgsFromCommandLine      proc
     pop bx              ; restore bx (height)
 
     ; -------------------------------------------------------
-    call parseSymbolsTillSpace
+    call parseQuotedWord
 
     ret
     endp
@@ -234,7 +257,7 @@ centerMessagePosition       proc
     push dx ; save dx, destroyed during mul
     mov di, bx
     shr di, 1 ; di = bx / 2, we want to place text message in the middle row
-    add di, 2
+    add di, 2 ; if height is odd, we want center line, also lines are numbered in one indexation
     mov ax, 2 * 80
     mul di
     mov di, ax
@@ -314,8 +337,7 @@ drawFrame   proc
 
     add si, 3
     ; draw last line of frame
-    ; lea si, TableFormat + 6
-    mov cx, dx ; TODO: hardcoded, frame width
+    mov cx, dx
     call drawLine
 
     ret
@@ -365,17 +387,17 @@ drawLine    proc
 ; Exit :
 ; Destr:
 drawTextMessage     proc
-    push di ; save di
-    push si ; save si
+    push di                 ; save di
+    push si                 ; save si
 
     charLoop:
-        lodsb ; load char from message to al
-        mov es:[di], ax ; save char with color attr to video memory
-        add di, 2 ; move col position
+        lodsb               ; load char from message to al
+        mov es:[di], ax     ; save char with color attr to video memory
+        add di, 2           ; move col position
         loop charLoop
 
-    pop si ; restore si
-    pop di ; restore di
+    pop si                  ; restore si
+    pop di                  ; restore di
     ret
     endp
 

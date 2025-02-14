@@ -11,13 +11,21 @@
 
 
 ; contains all possible formats for frame
-FrameStyles         db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
-                    db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
-                    db '123456789'                                ; for debug purposes
-                    db '#-#| |#-#'
-CurrentFrameStyle   db 9 dup(?)
-TextMessage         db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
-backgroundColor     db 1 dup(?)                                   ; Is it ok to store just one byte in memory?
+FrameStyles                 db 201, 205, 187, 186, 32, 186, 200, 205, 188 ; double edge
+                            db 218, 196, 191, 179, 32, 179, 192, 196, 217 ; single edge
+                            db '123456789'                                ; for debug purposes
+                            db '#-#| |#-#'
+CurrentFrameStyle           db 9 dup(?)
+TextMessage                 db 'I am so stupid and dumb'                  ; message that is shown in the middle of table
+backgroundColor             db 1 dup(?)                                   ; Is it ok to store just one byte in memory?
+
+VIDEO_MEMORY_ADDR           equ 0b800h
+EXIT_CODE                   equ 4c00h
+COMMAND_LINE_MEMORY_ADDR    equ 80h
+TEXT_MESSAGE_COLOR_ATTR     equ 3Fh
+SCREEN_WIDTH                equ 80
+STYLE_STRING_LEN            equ 9
+STYLE_STRING_ONE_ROW_LEN    equ 3
 
 
 
@@ -152,13 +160,12 @@ decideFrameStyle        proc
 
         mov cx, bx
         dec cx
-        ;add si, di
         bruh:
-            add si, 9
+            add si, STYLE_STRING_LEN
             loop bruh
 
         push di ; save di
-        mov cx, 9
+        mov cx, STYLE_STRING_LEN
         mov di, offset CurrentFrameStyle
         rep movsb
         pop di  ; restore  di
@@ -173,7 +180,7 @@ decideFrameStyle        proc
         push di ; save di
                 ; si points to beginning of user's style
         mov di, offset CurrentFrameStyle
-        mov cx, 9
+        mov cx, STYLE_STRING_LEN
         rep movsb
 
         pop di  ; restore di
@@ -194,10 +201,10 @@ decideFrameStyle        proc
 ;         CX - text message len
 ; Destr :
 extractArgsFromCommandLine      proc
-    mov si, 80h         ; memory address where command line len lies
-    xor cx, cx          ; cx = 0
-    mov cl, [si]        ; load command line len to cx
-    mov di, 81h + 1         ; memory address where command line string lies (at 81h lies space)
+    mov si, COMMAND_LINE_MEMORY_ADDR        ; memory address where command line len lies
+    xor cx, cx                              ; cx = 0
+    mov cl, [si]                            ; load command line len to cx
+    mov di, COMMAND_LINE_MEMORY_ADDR + 2    ; memory address where command line string lies (at 81h lies space)
     push ds
     pop es
 
@@ -258,7 +265,7 @@ centerMessagePosition       proc
     mov di, bx
     shr di, 1 ; di = bx / 2, we want to place text message in the middle row
     add di, 2 ; if height is odd, we want center line, also lines are numbered in one indexation
-    mov ax, 2 * 80
+    mov ax, 2 * SCREEN_WIDTH
     mul di
     mov di, ax
 
@@ -280,19 +287,19 @@ centerMessagePosition       proc
 ; Exit  : None
 ; Destr :
 drawFrameAndMessage     proc
-    push si             ; save address of message si
-    push cx             ; save text message len
+    push si                        ; save address of message si
+    push cx                        ; save text message len
     call drawFrame
-    pop  cx             ; restore len
-    pop  si             ; restore si (address)
+    pop  cx                        ; restore len
+    pop  si                        ; restore si (address)
 
-    push 0b800h         ; set memory segment to video memory
+    push VIDEO_MEMORY_ADDR         ; set memory segment to video memory
     pop  es
 
     call centerMessagePosition
 
     xor ax, ax
-    mov ah, 3Fh         ; set color attribute
+    mov ah, TEXT_MESSAGE_COLOR_ATTR         ; set color attribute
     call drawTextMessage
 
     ret
@@ -304,7 +311,7 @@ drawFrameAndMessage     proc
 ; Destr: si, ax, bx
 drawFrame   proc
     push bx ; save frame height
-    mov bx, 0b800h
+    mov bx, VIDEO_MEMORY_ADDR
     mov es, bx ; set memory segment to video memory
     ; cld df ; just in case, we need si += 1 during lodsb
     push dx;
@@ -314,11 +321,11 @@ drawFrame   proc
 
 
     ; draw first line of frame
-    mov di, 2 * 2 * 80 ; move video memory pointer to the 2th line
+    mov di, 2 * 2 * SCREEN_WIDTH ; move video memory pointer to the 2th line
     mov cx, dx ; TODO: hardcoded, frame width
     call drawLine
-    add di, 2 * 80 ; move video memory pointer to the next line
-    add si, 3
+    add di, 2 * SCREEN_WIDTH ; move video memory pointer to the next line
+    add si, STYLE_STRING_ONE_ROW_LEN
 
     pop bx ; restore height
     mov cx, bx ; hardcoded, frame height
@@ -330,12 +337,12 @@ drawFrame   proc
         ; lea si, TableFormat + 3
         mov cx, dx ; TODO: hardcoded, frame width
         call drawLine
-        add di, 2 * 80 ; move video memory pointer to the next line
+        add di, 2 * SCREEN_WIDTH ; move video memory pointer to the next line
 
         pop cx ; restore cx
         loop cycleThroughRows
 
-    add si, 3
+    add si, STYLE_STRING_ONE_ROW_LEN
     ; draw last line of frame
     mov cx, dx
     call drawLine
